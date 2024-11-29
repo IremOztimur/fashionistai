@@ -17,9 +17,31 @@ export default function Home() {
   const [selectedStyle, setSelectedStyle] = useState('')
   const router = useRouter()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    router.push('/generated-style')
+    const payload = {
+      style_description: styleDescription,
+      predefined_style: selectedStyle,
+    }
+    try {
+      // Send data to the Django backend
+      const response = await fetch("http://localhost:8000/api/process-style/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      })
+        // Handle response from the backend
+        const data = await response.json()
+        console.log("Backend Response:", data)
+    
+        // Redirect to the generated style page (optional)
+        // router.push('/generated-style')
+      } catch (error) {
+        console.error("Error submitting data:", error)
+      }
+    
   }
 
   return (
