@@ -13,6 +13,9 @@ import fal_client
 import tempfile
 from PIL import Image
 from io import BytesIO
+from roboflow import Roboflow
+from requests.exceptions import HTTPError
+import numpy as np
 
 class ProcessStyleView(APIView):
     parser_classes = [MultiPartParser, FormParser]
@@ -26,6 +29,16 @@ class ProcessStyleView(APIView):
                 {"error": "Both style_description and image are required"}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        try:
+            self.predictions = self.apply_object_detection(image_file)
+        
+        except Exception as e:
+            return Response(
+                {"error": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            
 
         temp_file_path = None
         try:
@@ -99,9 +112,9 @@ Your optimized instruction:"""
 
             # Transform image using FAL.ai with optimized query
             result = fal_client.subscribe(
-                "fal-ai/flux/dev/image-to-image",
+                "fal-ai/flux-pro/v1/canny",
                 arguments={
-                    "image_url": url,
+                    "control_image_url": url,
                     "prompt": optimized_query
                 },
                 with_logs=True,
@@ -161,7 +174,47 @@ Your optimized instruction:"""
             print(style_advice)
 
             # Get product recommendations using transformed image
-            product_results = self.get_product_recommendations_from_image(transformed_image_url)
+            # benim querymin icerisinde detected object var mı? varsa specific onu kullan yoksa direkt transofrmed image url
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                for chunk in image_file.chunks():
+                    temp_file.write(chunk)
+                temp_file_path = temp_file.name
+            
+            matched_objects = [
+                obj for obj in self.predictions.get('predictions', [])
+                if any(keyword.lower() in style_description.lower() for keyword in obj['class'].split())
+            ]
+            if matched_objects:
+                print("\n=== Matched Objects ===")
+                print(matched_objects)
+                
+                matched_object = matched_objects[0]
+                x, y, width, height = (
+                    matched_object['x'], 
+                    matched_object['y'], 
+                    matched_object['width'], 
+                    matched_object['height']
+                )
+                
+                with Image.open(temp_file_path) as img:
+                    left = max(0, int(x - width / 2))
+                    upper = max(0, int(y - height / 2))
+                    right = min(img.width, int(x + width / 2))
+                    lower = min(img.height, int(y + height / 2))
+                    cropped_image = img.crop((left, upper, right, lower))
+
+                    cropped_temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+                    cropped_image.save(cropped_temp_file.name)
+                    cropped_image_path = cropped_temp_file.name
+
+
+                    product_results = self.get_product_recommendations_from_image(cropped_image_path)
+
+                    os.unlink(cropped_image_path)
+            
+            else:
+                product_results = self.get_product_recommendations_from_image(transformed_image_url)
+                
             print("\n=== Final Product Results ===")
             print(json.dumps(product_results, indent=2))
 
@@ -258,3 +311,36 @@ Your optimized instruction:"""
         except Exception as e:
             print(f"Error in get_product_recommendations_from_image: {str(e)}")
             return []
+    
+    def apply_object_detection(self, image_file):
+        """
+        Process the uploaded image for object detection.
+        """
+        # Convert the uploaded file into a format Roboflow API can use
+        api_key = os.getenv('ROBOFLOW_API_KEY')
+        if not api_key:
+            raise ValueError("ROBOFLOW_API_KEY not configured")
+        
+        rf = Roboflow(api_key)
+        project = rf.workspace().project("clothing-detection-s4ioc")
+        model = project.version(6).model
+
+        try:
+            # Save the image temporarily or use an in-memory buffer
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+                for chunk in image_file.chunks():
+                    temp_file.write(chunk)
+                temp_file_path = temp_file.name
+
+            # Call the Roboflow model for predictions
+            prediction = model.predict(temp_file_path, confidence=40, overlap=30).json()
+
+
+            # Clean up the temporary file
+            os.unlink(temp_file_path)
+            
+            return prediction
+
+        except HTTPError as e:
+            print(f"An error occurred during object detection: {e}")
+            raise
