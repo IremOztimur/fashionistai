@@ -45,8 +45,6 @@ export default function Home() {
       const data = await response.json()
       console.log(data)
       if (response.ok) {
-        // Parse the style_advice string into a JSON object
-        console.log("Raw style advice:", data.style_advice);
         
         const styleAdvice = JSON.parse(data.style_advice)
         
