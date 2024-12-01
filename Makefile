@@ -4,7 +4,7 @@ run-backend:
 
 run-frontend:
 	@echo "\033[1;34mStarting the front-end server...\033[0m"
-	@cd front-end && npm run dev
+	@cd frontend && npm run dev
 
 setup-backend:
 	@echo "\033[1;33mSetting up backend environment...\033[0m"
