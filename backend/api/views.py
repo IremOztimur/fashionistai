@@ -30,16 +30,6 @@ class ProcessStyleView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        try:
-            self.predictions = self.apply_object_detection(image_file)
-        
-        except Exception as e:
-            return Response(
-                {"error": str(e)}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-            
-
         temp_file_path = None
         try:
             # First, optimize the user's query using Llama
@@ -170,50 +160,11 @@ Your optimized instruction:"""
 
             # Get the style advice
             style_advice = chat_completion.choices[0].message.content
+
             print("\n=== Style Advice from LLM ===")
             print(style_advice)
-
-            # Get product recommendations using transformed image
-            # benim querymin icerisinde detected object var mı? varsa specific onu kullan yoksa direkt transofrmed image url
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-                for chunk in image_file.chunks():
-                    temp_file.write(chunk)
-                temp_file_path = temp_file.name
             
-            matched_objects = [
-                obj for obj in self.predictions.get('predictions', [])
-                if any(keyword.lower() in style_description.lower() for keyword in obj['class'].split())
-            ]
-            if matched_objects:
-                print("\n=== Matched Objects ===")
-                print(matched_objects)
-                
-                matched_object = matched_objects[0]
-                x, y, width, height = (
-                    matched_object['x'], 
-                    matched_object['y'], 
-                    matched_object['width'], 
-                    matched_object['height']
-                )
-                
-                with Image.open(temp_file_path) as img:
-                    left = max(0, int(x - width / 2))
-                    upper = max(0, int(y - height / 2))
-                    right = min(img.width, int(x + width / 2))
-                    lower = min(img.height, int(y + height / 2))
-                    cropped_image = img.crop((left, upper, right, lower))
-
-                    cropped_temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-                    cropped_image.save(cropped_temp_file.name)
-                    cropped_image_path = cropped_temp_file.name
-
-
-                    product_results = self.get_product_recommendations_from_image(cropped_image_path)
-
-                    os.unlink(cropped_image_path)
-            
-            else:
-                product_results = self.get_product_recommendations_from_image(transformed_image_url)
+            product_results = self.get_product_recommendations_from_image(transformed_image_url)
                 
             print("\n=== Final Product Results ===")
             print(json.dumps(product_results, indent=2))
@@ -267,7 +218,7 @@ Your optimized instruction:"""
             
             if response.status_code == 200:
                 data = response.json()
-                
+
                 # Check for images in the response
                 images = data.get('images', [])
                 if images:
